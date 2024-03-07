@@ -1,0 +1,296 @@
+Program.Sub.ScreenSU.Start
+Program.Sub.ScreenSU.End
+
+Program.Sub.Preflight.Start
+
+Variable.UDT.BarDtl.Define("Job",String,Job)
+Variable.UDT.BarDtl.Define("Suffix",String,Suffix)
+Variable.UDT.BarDtl.Define("Router_Seq",String,Router_Seq)
+Variable.UDT.BarDtl.Define("Trmnl",String)
+Variable.UDT.BarDtl.Define("Barcode",String)
+Variable.UDT.BarDtl.Define("Setup",Float,Setup)
+Variable.UDT.BarDtl.Define("BC_Seq",String,BC_Seq)
+Variable.UDT.BarDtl.Define("Mach",String,Mach)
+Variable.UDT.BarDtl.Define("NotFound",Boolean)
+Variable.UDT.BarDtl.Define("Program",String)
+Variable.UDT.BarDtl.Define("LMO",String,LMO)
+Variable.uGlobal.uBarDtl.Declare("BarDtl")
+Variable.UDT.BarHd.Define("Job",String,Job)
+Variable.UDT.BarHd.Define("Suffix",String,Suffix)
+Variable.UDT.BarHd.Define("PartNo",String,PartNo)
+Variable.UDT.BarHd.Define("BC_Job",String,BC_Job)
+Variable.UDT.BarHd.Define("BC_Suffix",String,BC_Suffix)
+Variable.UDT.BarHd.Define("Company",String,Company)
+Variable.uGlobal.uBarHd.Declare("BarHd")
+Program.Sub.Preflight.End
+
+Program.Sub.Main.Start
+F.Intrinsic.Control.SetErrorHandler("Main_Err")
+F.Intrinsic.Control.ClearErrors
+'================================
+
+V.Local.sError.Declare(String)
+
+F.ODBC.Connection!Con.OpenConnection(V.Ambient.PDSN,V.Ambient.PUser,V.Ambient.PPass)
+
+F.Intrinsic.Control.If(V.Caller.Hook,=,16090)
+F.Intrinsic.Control.AndIf(V.Passed.009001,=,"001811")
+	F.Intrinsic.Control.CallSub(Read_bi_file)
+	F.Intrinsic.Control.CallSub(Add_barcodes)
+	F.Intrinsic.Control.CallSub(Program_status)
+F.Intrinsic.Control.EndIf
+
+F.Intrinsic.Control.CallSub(Unload)
+
+
+
+'================================
+F.Intrinsic.Control.Label("Main_Err")
+F.Intrinsic.Control.If(V.Ambient.ErrorNumber,<>,0)
+	Function.Intrinsic.String.Concat("Project: GCG_Predator_BarCode_Rpt.gas",V.Ambient.Newline,V.Ambient.Newline,"Subroutine: ",V.Ambient.CurrentSubroutine,V.Ambient.NewLine,"Error Occurred ",V.Ambient.ErrorNumber," with description ",V.Ambient.ErrorDescription,V.Local.sError)
+	F.Intrinsic.UI.Msgbox(V.Local.sError)
+Function.Intrinsic.Control.EndIf
+
+
+Program.Sub.Main.End
+
+Program.Sub.Unload.Start
+
+F.ODBC.Connection!Con.Close
+F.Intrinsic.Control.End
+
+Program.Sub.Unload.End
+
+Program.Sub.Read_BI_File.Start
+F.Intrinsic.Control.SetErrorHandler("Read_BI_File_Err")
+F.Intrinsic.Control.ClearErrors
+'================================
+
+
+V.Local.sError.Declare(String)
+V.Local.sSel.Declare(String)
+
+
+' get Bar Head information
+V.uGlobal.uBarHd.Redim(-1,-1)
+F.Intrinsic.String.Concat("select Job, Suffix, PartNo, BC_Job, BC_Suffix, Company from BI_Bar_Head where Terminal='",V.Caller.Terminal,"' and Rptid ='001811' order by Job, Suffix","",V.Local.sSel)
+F.ODBC.Connection!Con.OpenRecordsetRO("rstSel",V.Local.sSel)
+	F.Intrinsic.Control.If(V.ODBC.Con!rstSel.EOF,=,False)
+		F.Intrinsic.Variable.LoadUDTFromRecordset("Con","rstSel","v.uGlobal.uBarHd",False,1)
+	F.Intrinsic.Control.EndIf
+F.ODBC.Con!rstSel.Close
+
+' if no data was found, unload
+F.Intrinsic.Control.If(V.uGlobal.uBarHd!Job.UBound,=,-1)
+	F.Intrinsic.Control.CallSub(Unload)
+F.Intrinsic.Control.EndIf
+
+V.uGlobal.uBarDtl.Redim(-1,-1)
+F.Intrinsic.String.Concat(" select Job, Suffix, Router_Seq, Setup, BC_Seq, Mach, LMO from BI_Bar_Detail where Terminal ='",V.Caller.Terminal,"' and Rptid='001811' order by Router_Seq",V.Local.sSel)
+F.ODBC.Connection!Con.OpenRecordsetRO("rstSel",V.Local.sSel)
+	F.Intrinsic.Control.If(V.ODBC.Con!rstSel.EOF,=,False)
+		F.Intrinsic.Variable.LoadUDTFromRecordset("Con","rstSel","v.uGlobal.uBarDtl",False,1)
+	F.Intrinsic.Control.EndIf
+F.ODBC.Con!rstSel.Close
+
+F.Intrinsic.Control.ExitSub
+
+
+
+'================================
+F.Intrinsic.Control.Label("Read_BI_File_Err")
+F.Intrinsic.Control.If(V.Ambient.ErrorNumber,<>,0)
+	Function.Intrinsic.String.Concat("Project: GCG_Predator_BarCode_Rpt.gas",V.Ambient.Newline,V.Ambient.Newline,"Subroutine: ",V.Ambient.CurrentSubroutine,V.Ambient.NewLine,"Error Occurred ",V.Ambient.ErrorNumber," with description ",V.Ambient.ErrorDescription,V.Local.sError)
+	F.Intrinsic.UI.Msgbox(V.Local.sError)
+Function.Intrinsic.Control.EndIf
+
+
+Program.Sub.Read_BI_File.End
+
+Program.Sub.Add_Barcodes.Start
+F.Intrinsic.Control.SetErrorHandler("Add_Barcodes_Err")
+F.Intrinsic.Control.ClearErrors
+'================================
+
+
+V.Local.sError.Declare(String)
+V.Local.iFor.Declare(Long)
+V.Local.sRet.Declare(String)
+V.Local.sBC.Declare(String)
+V.Local.sPart.Declare(String)
+V.Local.sRev.Declare(String)
+V.Local.iCt.Declare(Long)
+V.Local.sSel.Declare(String)
+
+F.Intrinsic.Control.For(V.Local.iFor,V.uGlobal.uBarDtl!Job.LBound,V.uGlobal.uBarDtl!Job.UBound,1)
+	F.Intrinsic.Variable.UDTMultiSeek(V.uGlobal.uBarHd!Job,V.uGlobal.uBarDtl(v.Local.iFor)!Job,V.uGlobal.uBarHd!Suffix,V.uGlobal.uBarDtl(v.Local.iFor)!Suffix,V.Local.sRet)
+
+	' should be only one, but split, just in case
+	F.Intrinsic.String.Split(V.Local.sRet,"*!*",V.Local.sRet)
+
+	' see if it's a setup seq; lmo ='L' and setup <> 0
+	F.Intrinsic.Control.If(V.uGlobal.uBarDtl(v.Local.iFor)!Setup,<>,0)
+	F.Intrinsic.Control.AndIf(V.uGlobal.uBarDtl(v.Local.iFor)!LMO,=,"L")
+		F.Intrinsic.String.RPad(V.uGlobal.uBarHd(v.Local.sRet)!PartNo," ",20,V.uGlobal.uBarHd(v.Local.sRet)!PartNo)
+		F.Intrinsic.String.Left(V.uGlobal.uBarHd(v.Local.sRet)!PartNo,17,V.Local.sPart)
+		F.Intrinsic.String.Right(V.uGlobal.uBarHd(v.Local.sRet)!PartNo,3,V.Local.sRev)
+
+		F.Intrinsic.Math.Add(V.Local.iCt,1,V.Local.iCt)
+		F.Intrinsic.String.Concat("LD%O",V.Local.sPart.Trim,"%O",V.Local.sRev.Trim,"%OOP",V.Local.iCt,V.Local.sBC)
+		V.uGlobal.uBarDtl(v.Local.iFor)!Barcode.Set(V.Local.sBC)
+
+		' verify program
+		F.Intrinsic.Control.CallSub(Verify,"MACH",V.uGlobal.uBarDtl(v.Local.iFor)!Mach,"CO",V.uGlobal.uBarHd(v.Local.sRet(0))!Company,"PART",V.uGlobal.uBarHd(v.Local.sRet(0))!PartNo,"PGM",V.Local.sBC)
+		V.uGlobal.uBarDtl(v.Local.iFor)!Program.Set(V.Args.PGM)
+
+		' if program is not found, set flag to use to alert user
+		F.Intrinsic.Control.If(V.Args.VERIFIED,=,False)
+			V.uGlobal.uBarDtl(v.Local.iFor)!NotFound.Set(True)
+		F.Intrinsic.Control.EndIf
+	
+	' else set standard barcode
+	F.Intrinsic.Control.Else
+		F.Intrinsic.String.Concat(V.uGlobal.uBarHd(v.Local.sRet(0))!BC_Job,V.uGlobal.uBarHd(v.Local.sRet(0))!BC_Suffix,V.uGlobal.uBarDtl(v.Local.iFor)!BC_Seq,V.uGlobal.uBarDtl(v.Local.iFor)!Barcode)
+
+	F.Intrinsic.Control.EndIf
+
+F.Intrinsic.Control.Next(V.Local.iFor)
+
+' clear existing data from table
+F.Intrinsic.String.Concat("delete from GCG_3332_Predator_BarCode where Trmnl='",V.Caller.Terminal,"' ",V.Local.sSel)
+F.ODBC.Connection!Con.Execute(V.Local.sSel)
+
+' save udt to custom table
+F.Intrinsic.Variable.SetUDTFieldReference(V.uGlobal.uBarDtl!Setup,"")
+F.Intrinsic.Variable.SetUDTFieldReference(V.uGlobal.uBarDtl!BC_Seq,"")
+F.Intrinsic.Variable.SetUDTFieldReference(V.uGlobal.uBarDtl!Mach,"")
+F.Intrinsic.Variable.SetUDTFieldReference(V.uGlobal.uBarDtl!LMO,"")
+F.Intrinsic.Variable.SetUDTFieldReference(V.uGlobal.uBarDtl!Barcode,"Barcode")
+F.Intrinsic.Variable.SetUDTFieldReference(V.uGlobal.uBarDtl!Trmnl,"Trmnl")
+F.Intrinsic.Variable.UDTSetMemberValue(V.uGlobal.uBarDtl!Trmnl,V.Caller.Terminal)
+
+F.ODBC.Connection!Con.OpenRecordsetRW("rstSel","select * from GCG_3332_Predator_BarCode")
+	F.Intrinsic.Variable.SaveUDTToRecordset("Con","rstSel","v.uGlobal.uBarDtl")
+F.ODBC.Con!rstSel.Close
+
+
+F.Intrinsic.Control.ExitSub
+
+
+
+'================================
+F.Intrinsic.Control.Label("Add_Barcodes_Err")
+F.Intrinsic.Control.If(V.Ambient.ErrorNumber,<>,0)
+	Function.Intrinsic.String.Concat("Project: GCG_Predator_BarCode_Rpt.gas",V.Ambient.Newline,V.Ambient.Newline,"Subroutine: ",V.Ambient.CurrentSubroutine,V.Ambient.NewLine,"Error Occurred ",V.Ambient.ErrorNumber," with description ",V.Ambient.ErrorDescription,V.Local.sError)
+	F.Intrinsic.UI.Msgbox(V.Local.sError)
+Function.Intrinsic.Control.EndIf
+
+
+Program.Sub.Add_Barcodes.End
+
+Program.Sub.Verify.Start
+F.Intrinsic.Control.SetErrorHandler("Verify_Err")
+F.Intrinsic.Control.ClearErrors
+'================================
+
+
+
+V.Local.sError.Declare(String)
+V.Local.bExists.Declare(Boolean)
+V.Local.sPath.Declare(String)
+V.Local.sPGM.Declare(String)
+
+F.Intrinsic.String.Replace(V.Args.PGM,"%O","_",V.Local.sPGM)
+
+' see if program exists
+F.Intrinsic.String.Concat("\\apps\RMSS Program Files\RMSS",V.Args.MACH,"Programs\",V.Args.CO,"\",V.Args.PART,"\",V.Local.sPGM,V.Local.sPath)
+'F.Intrinsic.String.Concat("C:\",V.local.sPGM,V.Local.sPath)
+F.Intrinsic.File.Exists(V.Local.sPath,V.Local.bExists)
+
+F.Intrinsic.Variable.AddRV("VERIFIED",V.Local.bExists)
+F.Intrinsic.Variable.AddRV("PGM",V.Local.sPGM)
+
+F.Intrinsic.Control.ExitSub
+
+
+
+'================================
+F.Intrinsic.Control.Label("Verify_Err")
+F.Intrinsic.Control.If(V.Ambient.ErrorNumber,<>,0)
+	Function.Intrinsic.String.Concat("Project: GCG_Predator_BarCode_Rpt.gas",V.Ambient.Newline,V.Ambient.Newline,"Subroutine: ",V.Ambient.CurrentSubroutine,V.Ambient.NewLine,"Error Occurred ",V.Ambient.ErrorNumber," with description ",V.Ambient.ErrorDescription,V.Local.sError)
+	F.Intrinsic.UI.Msgbox(V.Local.sError)
+Function.Intrinsic.Control.EndIf
+
+
+Program.Sub.Verify.End
+
+Program.Sub.Program_Status.Start
+F.Intrinsic.Control.SetErrorHandler("Program_Status_Err")
+F.Intrinsic.Control.ClearErrors
+'=============================
+
+
+V.Local.sError.Declare(String)
+V.Local.iFor.Declare(Long)
+V.Local.sTxt.Declare(String)
+V.Local.sFile.Declare(String)
+V.Local.bExists.Declare(Boolean)
+V.Local.iHndl.Declare(Long)
+V.Local.sSel.Declare(String)
+
+F.Intrinsic.String.Concat(V.System.Temp,"\PrgmNotFound.txt",V.Local.sFile)
+V.Local.sTxt.Set("The following programs were not found:")
+
+' delete an existing file
+F.Intrinsic.File.Exists(V.Local.sFile,V.Local.bExists)
+F.Intrinsic.Control.If(V.Local.bExists,=,True)
+	F.Intrinsic.File.DeleteFile(V.Local.sFile)
+F.Intrinsic.Control.EndIf
+
+' flag all record where the program was found, and delete them
+V.Local.sSel.Set("<>::True")
+F.Intrinsic.Variable.UDTMultiFlag(V.uGlobal.uBarDtl!NotFound,V.Local.sSel)
+V.Local.sSel.Set("<>::L")
+F.Intrinsic.Variable.UDTMultiFlag(V.uGlobal.uBarDtl!LMO,V.Local.sSel)
+F.Intrinsic.Variable.UDTDeleteFlagged(V.uGlobal.uBarDtl)
+
+' if there are any records left (assumes some programs were not found) write program name(s) to a txt and open to the screen.
+F.Intrinsic.Control.If(V.uGlobal.uBarDtl!Job.UBound,>,-1)
+	F.Intrinsic.Control.For(V.Local.iFor,V.uGlobal.uBarDtl!Job.LBound,V.uGlobal.uBarDtl!Job.UBound,1)
+
+		' don't need blnk lines, here
+		F.Intrinsic.Control.if(V.uGlobal.uBarDtl(v.Local.iFor)!Program,<>,"")
+			F.Intrinsic.String.Concat(V.Local.sTxt,V.Ambient.NewLine,V.uGlobal.uBarDtl(v.Local.iFor)!Program,V.Local.sTxt)
+		F.Intrinsic.Control.EndIf
+	F.Intrinsic.Control.Next(V.Local.iFor)
+
+	F.Intrinsic.File.String2File(V.Local.sFile,V.Local.sTxt)
+
+F.Intrinsic.Control.EndIf
+
+
+F.Intrinsic.Task.ShellExec(V.Local.iHndl,"OPEN",V.Local.sFile,"","",1)
+F.Intrinsic.Control.ExitSub
+
+
+
+'=============================
+F.Intrinsic.Control.Label("Program_Status_Err")
+F.Intrinsic.Control.If(V.Ambient.ErrorNumber,<>,0)
+	Function.Intrinsic.String.Concat("Project: GCG_Predator_BarCode_Rpt.gas",V.Ambient.Newline,V.Ambient.Newline,"Subroutine: ",V.Ambient.CurrentSubroutine,V.Ambient.NewLine,"Error Occurred ",V.Ambient.ErrorNumber," with description ",V.Ambient.ErrorDescription,V.Local.sError)
+	F.Intrinsic.UI.Msgbox(V.Local.sError)
+Function.Intrinsic.Control.EndIf
+
+
+Program.Sub.Program_Status.End
+
+Program.Sub.Comments.Start
+${$0$}$GCG_Predator_BarCode_Rpt$}$JCT$}$2/20/2013
+${$1$}$$}$$}$0$}$16090$}$BSI005-PRE-PROCESS-HOOK$}$2/20/2013 6:44:18 AM$}$(Program: BSI005; Screen: )
+where v.passed.009001='001811'
+${$2$}$$}$$}$0$}$4$}$SF_BarCodeWO_Ext_RMS01.rpt$}$2/20/2013 6:44:18 AM$}$custom barcode wo ext
+${$3$}$0$}$$}$-1$}$-1$}$$}$1/1/1900$}$For Rugo Machine Shop
+
+A custom Bar Code Workorder Extended report, where the barcode on the setup sequences has a trigger and program file name, for Predator DNC.
+Program.Sub.Comments.End
+
